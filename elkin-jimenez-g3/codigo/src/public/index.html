@@ -198,6 +198,56 @@
     </div>
   </div>
 
+  <!-- Fila inferior: Bonos A y C -->
+  <div class="container" style="grid-template-columns: 1fr 1fr; margin-top:0">
+    <div class="panel">
+      <h2>🥇 Bono A — Sala de Espera Justa</h2>
+      <label>Usuario que se une a la cola</label>
+      <input type="text" id="wlUser" value="usr_cola_1" placeholder="usr_123">
+      <label>ID del evento</label>
+      <input type="text" id="wlEvent" value="aurora-bogota-2026">
+      <button class="btn success" onclick="waitlistJoin()">🎫 UNIRSE A LA COLA</button>
+      <button class="btn danger" onclick="waitlistLeave()">🚪 ABANDONAR COLA</button>
+      <label>Ticket ID (para abandonar)</label>
+      <input type="text" id="wlTicket" placeholder="tkt_XXXX">
+      <div id="wlResult"></div>
+      <div class="section-divider">
+        <button class="btn" onclick="loadWaitlist()">🔄 Actualizar Cola</button>
+        <div id="wlQueue"></div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>🥉 Bono C — Trazabilidad Reproducible</h2>
+      <label>Consultar historial de un asiento</label>
+      <input type="text" id="auditSeat" value="VIP-A-001" placeholder="VIP-A-001">
+      <button class="btn" onclick="auditSeatHistory()">📊 Historial del Asiento</button>
+      <button class="btn" onclick="auditReconstruct()">🔍 Verificar Consistencia</button>
+      <label>Consultar línea de tiempo de una reserva</label>
+      <input type="text" id="auditHold" placeholder="hold_XXXX">
+      <button class="btn" onclick="auditHoldTimeline()">📅 Línea de Tiempo</button>
+      <div class="section-divider">
+        <button class="btn" onclick="auditExportCSV()">⬇️ Exportar CSV</button>
+      </div>
+      <div id="auditResult"></div>
+    </div>
+  </div>
+
+  <!-- Bono D: GLM Explainer -->
+  <div class="container" style="grid-template-columns: 1fr; margin-top:0">
+    <div class="panel">
+      <h2>🧠 Bono D — GLM 5.2: Explicación Operacional</h2>
+      <div id="glmStatus" style="margin-bottom:8px;font-size:13px"></div>
+      <label>Explicar reserva (Hold ID)</label>
+      <input type="text" id="explainerHold" placeholder="hold_XXXX">
+      <button class="btn" onclick="explainHold()">🧠 Explicar Reserva con GLM</button>
+      <label>Explicar asiento (Seat ID)</label>
+      <input type="text" id="explainerSeat" value="VIP-A-001" placeholder="VIP-A-001">
+      <button class="btn" onclick="explainSeat()">🧠 Explicar Asiento con GLM</button>
+      <div id="explainerResult"></div>
+    </div>
+  </div>
+
   <script>
     const API = '';
     let selectedSeats = new Set();
@@ -318,7 +368,7 @@
           <div class="field"><span class="key">Expira en:</span><span class="val" id="countdown">${secs}s</span></div>
         </div>
       `;
-      if (hold.status === 'ACTIVE') startCountdown(hold.expires_at);
+      if (hold.status === 'ACTIVE') startCountdown(new Date(hold.expires_at).getTime());
     }
 
     let countdownInterval;
@@ -424,8 +474,200 @@
       document.getElementById('maxSeats').value = cfg.maxSeatsPerUser;
       log('Sala de Control NEXUS LIVE iniciada', 'success');
       setInterval(loadSeats, 2000);
+      setInterval(loadWaitlist, 3000);
     }
+
+    // ---------- Bono A: Sala de Espera ----------
+    async function waitlistJoin() {
+      const userId = document.getElementById('wlUser').value;
+      const eventId = document.getElementById('wlEvent').value;
+      if (!userId || !eventId) { log('Falta usuario o evento', 'error'); return; }
+      const { ok, data } = await api('/waitlist/join', {
+        method: 'POST', body: { user_id: userId, event_id: eventId },
+      });
+      if (!ok) { log('Error al unirse a la cola', 'error'); return; }
+      document.getElementById('wlTicket').value = data.entry.ticket_id;
+      const status = data.admitted ? 'ADMITIDO ✅' : `En espera (posición ${data.entry.position})`;
+      document.getElementById('wlResult').innerHTML = `
+        <div class="hold-info">
+          <div class="field"><span class="key">Ticket:</span><span class="val">${data.entry.ticket_id}</span></div>
+          <div class="field"><span class="key">Usuario:</span><span class="val">${data.entry.user_id}</span></div>
+          <div class="field"><span class="key">Estado:</span><span class="val">${status}</span></div>
+        </div>`;
+      log(`Usuario ${userId} unido a la cola: ${status}`, data.admitted ? 'success' : 'info');
+      loadWaitlist();
+    }
+
+    async function waitlistLeave() {
+      const ticketId = document.getElementById('wlTicket').value;
+      if (!ticketId) return;
+      const { data } = await api('/waitlist/leave', { method: 'POST', body: { ticket_id: ticketId } });
+      log(`Ticket ${ticketId} abandonó la cola: ${data.left}`, data.left ? 'warn' : 'error');
+      loadWaitlist();
+    }
+
+    async function loadWaitlist() {
+      const eventId = document.getElementById('wlEvent').value;
+      const { ok, data } = await api(`/waitlist/${eventId}`);
+      if (!ok) return;
+      const el = document.getElementById('wlQueue');
+      if (!data || data.length === 0) {
+        el.innerHTML = '<div class="hold-info">Cola vacía</div>';
+        return;
+      }
+      el.innerHTML = data.map(e => `
+        <div class="hold-info">
+          <div class="field"><span class="key">${e.ticket_id}</span><span class="val">${e.user_id}</span></div>
+          <div class="field"><span class="key">Posición:</span><span class="val">${e.position}</span></div>
+          <div class="field"><span class="key">Estado:</span><span class="val">${e.status === 'ADMITTED' ? '🟢 ADMITIDO' : '🟡 EN ESPERA'}</span></div>
+        </div>`).join('');
+    }
+
+    // ---------- Bono C: Auditoría ----------
+    async function auditSeatHistory() {
+      const seatId = document.getElementById('auditSeat').value;
+      const { ok, data } = await api(`/audit/export/seat/${seatId}`);
+      if (!ok) { log('Error al consultar historial', 'error'); return; }
+      const el = document.getElementById('auditResult');
+      if (data.history.length === 0) {
+        el.innerHTML = '<div class="hold-info">Sin transiciones registradas</div>';
+        return;
+      }
+      el.innerHTML = `
+        <div class="hold-info">
+          <div class="field"><span class="key">Asiento:</span><span class="val">${data.seat_id}</span></div>
+          <div class="field"><span class="key">Transiciones:</span><span class="val">${data.history.length}</span></div>
+        </div>
+        ${data.history.map(h => `
+          <div class="hold-info">
+            <div class="field"><span class="key">Paso ${h.step}:</span><span class="val">${h.from} → ${h.to}</span></div>
+            <div class="field"><span class="key">Razón:</span><span class="val">${h.reason}</span></div>
+            <div class="field"><span class="key">Hora:</span><span class="val">${new Date(h.timestamp).toLocaleTimeString()}</span></div>
+          </div>`).join('')}`;
+      log(`Historial de ${seatId}: ${data.history.length} transiciones`, 'info');
+    }
+
+    async function auditReconstruct() {
+      const seatId = document.getElementById('auditSeat').value;
+      const { ok, data } = await api(`/audit/reconstruct/seat/${seatId}`);
+      if (!ok) { log('Error al verificar consistencia', 'error'); return; }
+      const color = data.consistent ? '#4ade80' : '#f87171';
+      document.getElementById('auditResult').innerHTML = `
+        <div class="hold-info">
+          <div class="field"><span class="key">Asiento:</span><span class="val">${data.seat_id}</span></div>
+          <div class="field"><span class="key">Estado final:</span><span class="val">${data.final_state}</span></div>
+          <div class="field"><span class="key">Transiciones:</span><span class="val">${data.transitions}</span></div>
+          <div class="field"><span class="key">Consistente:</span><span class="val" style="color:${color}">${data.consistent ? '✅ SÍ' : '❌ NO'}</span></div>
+          ${data.issues.length > 0 ? `<div class="field"><span class="key">Problemas:</span><span class="val">${data.issues.join('; ')}</span></div>` : ''}
+        </div>`;
+      log(`Verificación de ${seatId}: ${data.consistent ? 'consistente ✅' : 'inconsistente ❌'}`, data.consistent ? 'success' : 'error');
+    }
+
+    async function auditHoldTimeline() {
+      const holdId = document.getElementById('auditHold').value;
+      if (!holdId) { log('Falta ID de reserva', 'error'); return; }
+      const { ok, data } = await api(`/audit/export/hold/${holdId}`);
+      if (!ok) { log('Error al consultar línea de tiempo', 'error'); return; }
+      const el = document.getElementById('auditResult');
+      if (data.transitions.length === 0) {
+        el.innerHTML = '<div class="hold-info">Sin transiciones para esta reserva</div>';
+        return;
+      }
+      el.innerHTML = `
+        <div class="hold-info">
+          <div class="field"><span class="key">Reserva:</span><span class="val">${data.hold_id}</span></div>
+          <div class="field"><span class="key">Pasos:</span><span class="val">${data.transitions.length}</span></div>
+        </div>
+        ${data.transitions.map(t => `
+          <div class="hold-info">
+            <div class="field"><span class="key">Paso ${t.step} — ${t.seat_id}:</span><span class="val">${t.from} → ${t.to}</span></div>
+            <div class="field"><span class="key">Razón:</span><span class="val">${t.reason}</span></div>
+            <div class="field"><span class="key">Hora:</span><span class="val">${new Date(t.timestamp).toLocaleTimeString()}</span></div>
+          </div>`).join('')}`;
+      log(`Línea de tiempo de ${holdId}: ${data.transitions.length} pasos`, 'info');
+    }
+
+    async function auditExportCSV() {
+      window.open('/api/audit/export/csv', '_blank');
+      log('Exportando CSV de auditoría...', 'info');
+    }
+
+    // ---------- Bono D: GLM Explainer ----------
+    async function checkGlmStatus() {
+      const { ok, data } = await api('/explainer/status');
+      if (!ok) return;
+      const el = document.getElementById('glmStatus');
+      if (data.configured) {
+        el.innerHTML = '<span style="color:#4ade80">✅ GLM 5.2 configurado y listo</span>';
+      } else {
+        el.innerHTML = '<span style="color:#fbbf24">⚠️ GLM no configurado (GLM_API_URL/GLM_API_KEY). Se usará análisis local (fallback).</span>';
+      }
+    }
+
+    function renderExplanation(data) {
+      const sourceLabel = data.source === 'glm'
+        ? '<span style="color:#4ade80">🧠 Generado por GLM 5.2</span>'
+        : '<span style="color:#fbbf24">📋 Análisis local (fallback)</span>';
+      const narrative = data.timeline_narrative && data.timeline_narrative.length > 0
+        ? data.timeline_narrative.map((n, i) => `<div class="hold-info"><div class="field"><span class="key">Paso ${i + 1}:</span><span class="val">${n}</span></div></div>`).join('')
+        : '<div class="hold-info">Sin narrativa disponible</div>';
+      return `
+        <div class="hold-info">
+          <div class="field"><span class="key">Origen:</span><span class="val">${sourceLabel}</span></div>
+          <div class="field"><span class="key">ID:</span><span class="val">${data.hold_id}</span></div>
+          <div class="field"><span class="key">Estado final:</span><span class="val">${data.final_state}</span></div>
+          <div class="field"><span class="key">Generado:</span><span class="val">${new Date(data.generated_at).toLocaleString('es-CO')}</span></div>
+        </div>
+        <div class="hold-info">
+          <div class="field"><span class="key">📝 Resumen:</span></div>
+          <div style="margin-top:4px">${data.summary}</div>
+        </div>
+        <div class="hold-info">
+          <div class="field"><span class="key">📊 Evaluación de riesgos:</span></div>
+          <div style="margin-top:4px">${data.risk_assessment}</div>
+        </div>
+        <div class="hold-info">
+          <div class="field"><span class="key">💡 Recomendación:</span></div>
+          <div style="margin-top:4px">${data.recommendation}</div>
+        </div>
+        <div class="hold-info">
+          <div class="field"><span class="key">📅 Línea de tiempo narrada:</span></div>
+        </div>
+        ${narrative}`;
+    }
+
+    async function explainHold() {
+      const holdId = document.getElementById('explainerHold').value;
+      if (!holdId) { log('Falta ID de reserva', 'error'); return; }
+      log(`Solicitando explicación de GLM para reserva ${holdId}...`, 'info');
+      document.getElementById('explainerResult').innerHTML = '<div class="hold-info">⏳ Consultando GLM 5.2...</div>';
+      const { ok, data } = await api(`/explainer/hold/${holdId}`);
+      if (!ok) {
+        log(`Error: ${data.reason}`, 'error');
+        document.getElementById('explainerResult').innerHTML = `<div class="hold-info"><span class="key">Error:</span> ${data.reason}</div>`;
+        return;
+      }
+      document.getElementById('explainerResult').innerHTML = renderExplanation(data);
+      log(`Explicación generada (${data.source})`, data.source === 'glm' ? 'success' : 'warn');
+    }
+
+    async function explainSeat() {
+      const seatId = document.getElementById('explainerSeat').value;
+      if (!seatId) { log('Falta ID de asiento', 'error'); return; }
+      log(`Solicitando explicación de GLM para asiento ${seatId}...`, 'info');
+      document.getElementById('explainerResult').innerHTML = '<div class="hold-info">⏳ Consultando GLM 5.2...</div>';
+      const { ok, data } = await api(`/explainer/seat/${seatId}`);
+      if (!ok) {
+        log(`Error: ${data.reason}`, 'error');
+        document.getElementById('explainerResult').innerHTML = `<div class="hold-info"><span class="key">Error:</span> ${data.reason}</div>`;
+        return;
+      }
+      document.getElementById('explainerResult').innerHTML = renderExplanation(data);
+      log(`Explicación generada (${data.source})`, data.source === 'glm' ? 'success' : 'warn');
+    }
+
     init();
+    checkGlmStatus();
   </script>
 </body>
 </html>

@@ -4,6 +4,8 @@ import { ReservationEngine } from './engine';
 import { CheckoutService } from './checkout';
 import { MockPaymentService, CircuitBreaker } from './payment';
 import { AuditRepository } from './audit';
+import { Waitlist } from './waitlist';
+import { GlmExplainer } from './explainer';
 import { Seat } from './types';
 
 export function createApp(options?: {
@@ -22,13 +24,18 @@ export function createApp(options?: {
   const payment = new MockPaymentService();
   const breaker = new CircuitBreaker();
   const checkout = new CheckoutService(engine, payment, breaker, audit);
+  const waitlist = new Waitlist();
+  const explainer = new GlmExplainer(audit);
 
   // Cargar asientos iniciales de demo
   const initialSeats = generateDemoSeats();
   engine.loadSeats(initialSeats);
 
   // Expiración periódica
-  const expiryInterval = setInterval(() => engine.expireHolds(), 1000);
+  const expiryInterval = setInterval(() => {
+    engine.expireHolds();
+    waitlist.processExpirations();
+  }, 1000);
 
   // ---------- API ----------
 
@@ -132,6 +139,82 @@ export function createApp(options?: {
     const { state } = req.body as { state: 'CLOSED' | 'OPEN' | 'HALF_OPEN' };
     checkout.forceBreakerState(state);
     res.json(checkout.getBreakerStats());
+  });
+
+  // ---------- Bono A: Sala de espera (Waitlist) ----------
+  app.post('/api/waitlist/join', (req, res) => {
+    const { user_id, event_id } = req.body;
+    if (!user_id || !event_id) {
+      return res.status(400).json({ error: 'INVALID_REQUEST', reason: 'user_id_and_event_id_required' });
+    }
+    const result = waitlist.join(user_id, event_id);
+    res.json(result);
+  });
+
+  app.post('/api/waitlist/release', (req, res) => {
+    const { ticket_id } = req.body;
+    const entry = waitlist.release(ticket_id);
+    res.json({ released: !!entry, entry });
+  });
+
+  app.post('/api/waitlist/leave', (req, res) => {
+    const { ticket_id } = req.body;
+    const entry = waitlist.leave(ticket_id);
+    res.json({ left: !!entry, entry });
+  });
+
+  app.get('/api/waitlist/:eventId', (req, res) => {
+    res.json(waitlist.getQueue(req.params.eventId));
+  });
+
+  app.get('/api/waitlist', (_req, res) => {
+    res.json(waitlist.getStats());
+  });
+
+  app.get('/api/waitlist/check/:ticketId', (req, res) => {
+    res.json({ admitted: waitlist.isAdmitted(req.params.ticketId) });
+  });
+
+  // ---------- Bono C: Exportación de auditoría ----------
+  app.get('/api/audit/export/hold/:id', (req, res) => {
+    res.json(audit.exportHoldTimeline(req.params.id));
+  });
+
+  app.get('/api/audit/export/seat/:id', (req, res) => {
+    res.json(audit.exportSeatHistory(req.params.id));
+  });
+
+  app.get('/api/audit/reconstruct/seat/:id', (req, res) => {
+    res.json(audit.reconstructSeatState(req.params.id));
+  });
+
+  app.get('/api/audit/export/csv', (_req, res) => {
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', 'attachment; filename="nexus_audit.csv"');
+    res.send(audit.exportCSV());
+  });
+
+  // ---------- Bono D: GLM 5.2 dentro del producto ----------
+  app.get('/api/explainer/status', (_req, res) => {
+    res.json({ configured: explainer.isConfigured() });
+  });
+
+  app.get('/api/explainer/hold/:id', async (req, res) => {
+    try {
+      const explanation = await explainer.explainHold(req.params.id);
+      res.json(explanation);
+    } catch (err) {
+      res.status(500).json({ error: 'EXPLAINER_ERROR', reason: String(err) });
+    }
+  });
+
+  app.get('/api/explainer/seat/:id', async (req, res) => {
+    try {
+      const explanation = await explainer.explainSeat(req.params.id);
+      res.json(explanation);
+    } catch (err) {
+      res.status(500).json({ error: 'EXPLAINER_ERROR', reason: String(err) });
+    }
   });
 
   // Stats

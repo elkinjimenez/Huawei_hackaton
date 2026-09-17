@@ -134,15 +134,15 @@ export class CheckoutService {
         };
       }
       const confirmationId = `conf_${uuidv4().slice(0, 8).toUpperCase()}`;
-      // Log de auditoría adicional
+      // Log de auditoría: evento de confirmación (metadata, no duplica transición de estado)
       for (const seatId of hold.seat_ids) {
         this.audit.log({
           hold_id: params.hold_id,
           user_id: hold.user_id,
           seat_id: seatId,
-          from_state: 'HELD',
+          from_state: 'SOLD',
           to_state: 'SOLD',
-          reason: `payment_approved:${txnId}`,
+          reason: `payment_confirmed:${txnId}`,
           timestamp: now,
           metadata: JSON.stringify({ confirmation_id: confirmationId, txn: txnId }),
         });

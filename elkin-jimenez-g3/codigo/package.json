@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "better-sqlite3": "^11.3.0",
+    "dotenv": "^16.6.1",
     "express": "^4.19.2",
     "uuid": "^10.0.0"
   },
@@ -29,6 +30,8 @@
   "jest": {
     "preset": "ts-jest",
     "testEnvironment": "node",
-    "testMatch": ["**/tests/**/*.test.ts"]
+    "testMatch": [
+      "**/tests/**/*.test.ts"
+    ]
   }
 }

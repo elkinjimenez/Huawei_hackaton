@@ -1,6 +1,8 @@
 # Variables de entorno
 .env
 *.env
+GLM_API_KEY
+GLM_API_URL
 
 # Dependencias
 node_modules/

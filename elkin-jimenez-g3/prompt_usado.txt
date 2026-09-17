@@ -70,10 +70,52 @@
 
 ---
 
+## Prompt 9 — Bono A: Sala de espera justa
+
+> "Implementa una sala de espera (waitlist) con fairness: cola FIFO, sin monopolización, con timeout de admisión y abandono."
+
+**GLM 5.2 generó:** `waitlist.ts` con cola FIFO por evento, `maxConcurrentAdmissions`, `admissionTimeoutMs`, y métodos `join/release/leave/cleanExpired`. 9 tests en `bono-a-waitlist.test.ts`, todos pasaron.
+
+---
+
+## Prompt 10 — Bono C: Auditoría reproducible
+
+> "Agrega exportación de trazabilidad: línea de tiempo de HOLD, historial de asiento, verificación de consistencia y export CSV."
+
+**GLM 5.2 generó:** Métodos `exportHoldTimeline`, `exportSeatHistory`, `reconstructSeatState`, `exportCSV` en `audit.ts`. 7 tests en `bono-c-audit.test.ts`.
+
+**Bug encontrado:** El checkout registraba transiciones `HELD→SOLD` duplicadas (el engine ya las registraba). Esto rompía la verificación de consistencia.
+
+**Corrección:** Cambié el log del checkout a un evento de confirmación (`SOLD→SOLD` con metadata) en lugar de duplicar la transición de estado. 46 tests pasaron.
+
+---
+
+## Prompt 11 — Bono D: GLM 5.2 dentro del producto
+
+> "Implementa un módulo que use GLM 5.2 para generar explicaciones operacionales del historial de una reserva. Debe manejar timeout, respuesta vacía, error de API y formato inesperado."
+
+**GLM 5.2 generó:** `explainer.ts` con clase `GlmExplainer` que:
+- Construye un prompt a partir de las transiciones de un HOLD o asiento.
+- Llama a la API de GLM (formato OpenAI-compatible) con `AbortController` para timeout.
+- Parsea la respuesta manejando múltiples formatos (choices.message.content, content, response, output).
+- Genera un fallback determinista cuando GLM no está disponible o falla.
+
+**Casos límite manejados (con tests):**
+- Timeout (IP inalcanzable, 500ms)
+- Error HTTP 500
+- Respuesta vacía (HTTP 204)
+- Formato inesperado (JSON sin campos esperados)
+- GLM no configurado (sin env vars)
+
+10 tests en `bono-d-explainer.test.ts`, todos pasaron.
+
+---
+
 ## Resumen
 
-- **Prompts enviados:** ~8 principales
-- **Propuestas corregidas:** 1 (estrategia de timeout — no liberar HOLD)
-- **Bugs resueltos con ayuda del agente:** 1 (mock no determinista en tests)
+- **Prompts enviados:** ~11 principales
+- **Propuestas corregidas:** 2 (estrategia de timeout — no liberar HOLD; log duplicado en checkout)
+- **Bugs resueltos con ayuda del agente:** 3 (mock no determinista; transición duplicada; AbortError no detectado)
 - **Código generado por GLM 5.2:** ~90% del código base
-- **Tests:** 30 tests, todos pasan
+- **Tests:** 56 tests, todos pasan
+- **Bonos implementados:** A (+8), B (+8), C (+7), D (+7) = +30 puntos

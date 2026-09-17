@@ -49,6 +49,8 @@
 | `src/checkout.ts` | Servicio de checkout (HELD→SOLD) con manejo de fallos |
 | `src/audit.ts` | Repositorio de trazabilidad en SQLite |
 | `src/app.ts` | Configuración de Express + rutas API + simulación |
+| `src/waitlist.ts` | Bono A: Sala de espera justa (cola FIFO con fairness) |
+| `src/explainer.ts` | Bono D: GLM 5.2 dentro del producto (explicación operacional) |
 | `src/server.ts` | Punto de entrada del servidor |
 | `src/public/index.html` | Interfaz web (Control Room) |
 
@@ -81,13 +83,35 @@ npm start
 
 El servidor inicia en `http://localhost:3000`.
 
-### Variables de entorno (opcionales)
+### Variables de entorno
 
-| Variable | Default | Descripción |
-|---|---|---|
-| `PORT` | 3000 | Puerto del servidor |
-| `TTL_MS` | 120000 | TTL del HOLD en ms |
-| `MAX_SEATS` | 6 | Máximo de asientos por usuario |
+Crea un archivo `.env` en `codigo/` con las siguientes variables:
+
+```env
+# Puerto del servidor (default: 3000)
+PORT=3000
+
+# TTL del HOLD en milisegundos (default: 120000 = 2 minutos)
+TTL_MS=120000
+
+# Máximo de asientos por usuario (default: 6)
+MAX_SEATS=6
+
+# --- Bono D: GLM 5.2 ---
+# URL del endpoint de GLM (formato OpenAI-compatible)
+GLM_API_URL=http://149.232.135.126:4000/v1/chat/completions
+
+# API key de GLM (¡NO subir a git!)
+GLM_API_KEY=tu-api-key-aqui
+
+# Modelo a usar (opcional, default: glm-4-flash)
+GLM_MODEL=glm-4-flash
+```
+
+> ⚠️ **Importante:** El archivo `.env` ya está en `.gitignore` y **no se sube a git**.
+> Nunca pongas credenciales directamente en el código.
+
+Si no configuras `GLM_API_URL` y `GLM_API_KEY`, el Bono D funciona con **análisis local (fallback)** en lugar de GLM.
 
 ---
 
@@ -101,7 +125,7 @@ npm test
 npm run test:concurrency
 ```
 
-**Resultado:** 30 tests, 4 suites, todos pasan.
+**Resultado:** 56 tests, 7 suites, todos pasan.
 
 ---
 
@@ -223,6 +247,24 @@ Endpoints:
 
 ## 🎁 Bonos implementados
 
+### � Bono A — Sala de espera justa (+8 puntos)
+
+Implementado en `src/waitlist.ts` con endpoints en la API y panel en la UI.
+
+**Estrategia:**
+- **Orden de atención:** Cola FIFO estricta por orden de llegada (timestamp).
+- **Fairness:** Un usuario no puede monopolizar: tiene exactamente 1 slot por evento. Si ya está en la cola o admitido, no puede reentrar.
+- **Admisión controlada:** `maxConcurrentAdmissions` (default: 5) usuarios admitidos a la vez. Los demás esperan en orden.
+- **Timeout de admisión:** Si un usuario admitido no crea su HOLD en `admissionTimeoutMs` (default: 30s), pierde su turno y entra el siguiente.
+- **Abandono:** Un usuario puede abandonar explícitamente (`leave`), liberando su slot.
+
+Endpoints:
+- `POST /api/waitlist/join` — unirse a la cola
+- `POST /api/waitlist/release` — liberar slot tras crear HOLD
+- `POST /api/waitlist/leave` — abandonar la cola
+- `GET /api/waitlist/:eventId` — ver cola de un evento
+- `GET /api/waitlist/check/:ticketId` — verificar si está admitido
+
 ### 🥈 Bono B — Prueba de concurrencia real (+8 puntos)
 
 Tests automatizados en `tests/concurrency.test.ts`:
@@ -233,6 +275,54 @@ Tests automatizados en `tests/concurrency.test.ts`:
 - 30 usuarios por cada uno de 3 asientos → 1 ganador por asiento
 
 Verificado con `Promise.all()` (concurrencia real en el event loop de Node.js).
+
+### 🥉 Bono C — Registro de auditoría reproducible (+7 puntos)
+
+Implementado en `src/audit.ts` con métodos de exportación y verificación.
+
+**Capacidades:**
+- **Línea de tiempo de un HOLD:** secuencia ordenada de transiciones con timestamps ISO.
+- **Historial de un asiento:** toda la "vida" del asiento (AVAILABLE → HELD → SOLD → ...).
+- **Verificación de consistencia:** reconstruye el estado final desde el log y detecta transiciones inválidas.
+- **Exportación CSV:** descarga completa del log en formato CSV reproducible.
+
+Endpoints:
+- `GET /api/audit/export/hold/:id` — línea de tiempo de una reserva
+- `GET /api/audit/export/seat/:id` — historial completo de un asiento
+- `GET /api/audit/reconstruct/seat/:id` — verificar consistencia del log
+- `GET /api/audit/export/csv` — descargar CSV completo
+
+**Total bonos: +30 puntos (A + B + C + D)**
+
+### 🧠 Bono D — GLM 5.2 dentro del producto (+7 puntos)
+
+Implementado en `src/explainer.ts`. Un módulo de operaciones que recibe el historial
+de una reserva (transiciones de estado, eventos de pago, cambios y errores) y genera
+una **explicación operacional estructurada** usando GLM 5.2.
+
+**Capacidades:**
+- Analiza el historial completo de un HOLD o de un asiento.
+- Genera: resumen, narrativa paso a paso, estado final, evaluación de riesgos, recomendación.
+- Usa GLM 5.2 vía API (formato OpenAI-compatible).
+
+**Manejo robusto de casos límite:**
+- **Timeout:** Si la API no responde en `timeoutMs` (default 10s), usa análisis local (fallback).
+- **Respuesta vacía:** Detecta respuestas sin contenido y usa fallback.
+- **Error de API:** HTTP no-2xx → fallback con mensaje de error.
+- **Formato inesperado:** JSON inválido o sin campos esperados → fallback.
+- **Fallback determinista:** Genera análisis local útil a partir de las transiciones, sin GLM.
+
+**Configuración (variables de entorno):**
+```bash
+export GLM_API_URL="https://api.tu-glm-endpoint.com/v1/chat/completions"
+export GLM_API_KEY="tu-api-key"
+export GLM_MODEL="glm-4-flash"  # opcional
+```
+
+Endpoints:
+- `GET /api/explainer/status` — verificar si GLM está configurado
+- `GET /api/explainer/hold/:id` — explicar reserva con GLM
+- `GET /api/explainer/seat/:id` — explicar asiento con GLM
 
 ---
 

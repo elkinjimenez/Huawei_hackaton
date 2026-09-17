@@ -158,59 +158,114 @@ Responde EXACTAMENTE en este formato JSON (sin texto adicional):
   }
 
   /**
-   * Llama a la API de GLM con manejo de timeout.
+   * Llama a la API de GLM con manejo de timeout y reintentos.
+   *
+   * Reintenta automáticamente en errores transitorios del proxy LiteLLM:
+   *  - 404 Not Found (rutas no registradas temporalmente)
+   *  - 429 Rate limit (TPM/RPM excedido)
+   *  - 503 Service Unavailable
+   *
+   * Backoff exponencial: 500ms, 1000ms, 2000ms (3 intentos por defecto).
    */
   private async callGlm(prompt: string): Promise<unknown> {
     if (!this.config) throw new Error('GLM no configurado');
 
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), this.config.timeoutMs);
+    const maxRetries = 3;
+    const baseDelayMs = 500;
+    const retryableStatuses = new Set([404, 429, 503]);
 
-    try {
-      const res = await fetch(this.config.apiUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${this.config.apiKey}`,
-        },
-        body: JSON.stringify({
-          model: this.config.model,
-          messages: [{ role: 'user', content: prompt }],
-          temperature: 0.3,
-          max_tokens: 1000,
-        }),
-        signal: controller.signal,
-      });
+    let lastError: Error | null = null;
 
-      // Error de API (HTTP no-2xx)
-      if (!res.ok) {
-        const errText = await res.text().catch(() => '');
-        throw new Error(`API error ${res.status}: ${errText.slice(0, 200)}`);
-      }
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), this.config.timeoutMs);
 
-      // Respuesta vacía
-      const text = await res.text();
-      if (!text || text.trim() === '') {
-        throw new Error('Respuesta vacía del API');
-      }
-
-      let json: unknown;
       try {
-        json = JSON.parse(text);
-      } catch {
-        // Formato inesperado: no es JSON válido
-        throw new Error('Formato inesperado: respuesta no es JSON válido');
-      }
+        const res = await fetch(this.config.apiUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${this.config.apiKey}`,
+          },
+          body: JSON.stringify({
+            model: this.config.model,
+            messages: [{ role: 'user', content: prompt }],
+            temperature: 0.3,
+            max_tokens: 1000,
+          }),
+          signal: controller.signal,
+        });
 
-      return json;
-    } catch (err) {
-      if (err instanceof Error && (err.name === 'AbortError' || err.message.includes('aborted'))) {
-        throw new Error('Timeout: la API no respondió en el tiempo esperado');
+        // Error de API (HTTP no-2xx)
+        if (!res.ok) {
+          const errText = await res.text().catch(() => '');
+
+          // Reintentar si es transitorio y quedan intentos
+          if (retryableStatuses.has(res.status) && attempt < maxRetries) {
+            lastError = new Error(`API error ${res.status}: ${errText.slice(0, 200)}`);
+            const delayMs = baseDelayMs * Math.pow(2, attempt);
+            await this.sleep(delayMs);
+            continue;
+          }
+
+          throw new Error(`API error ${res.status}: ${errText.slice(0, 200)}`);
+        }
+
+        // Respuesta vacía
+        const text = await res.text();
+        if (!text || text.trim() === '') {
+          throw new Error('Respuesta vacía del API');
+        }
+
+        let json: unknown;
+        try {
+          json = JSON.parse(text);
+        } catch {
+          // Formato inesperado: no es JSON válido
+          throw new Error('Formato inesperado: respuesta no es JSON válido');
+        }
+
+        return json;
+      } catch (err) {
+        if (err instanceof Error && (err.name === 'AbortError' || err.message.includes('aborted'))) {
+          // Timeout es transitorio — reintentar si quedan intentos
+          if (attempt < maxRetries) {
+            lastError = new Error('Timeout: la API no respondió en el tiempo esperado');
+            const delayMs = baseDelayMs * Math.pow(2, attempt);
+            await this.sleep(delayMs);
+            continue;
+          }
+          throw new Error('Timeout: la API no respondió en el tiempo esperado');
+        }
+
+        // Errores de red (fetch falla antes de obtener respuesta) — reintentar
+        const isNetworkError = err instanceof Error && (
+          err.message.includes('fetch failed') ||
+          err.message.includes('ECONNREFUSED') ||
+          err.message.includes('ETIMEDOUT') ||
+          err.message.includes('ENOTFOUND') ||
+          err.message.includes('socket hang up')
+        );
+
+        if (isNetworkError && attempt < maxRetries) {
+          lastError = err;
+          const delayMs = baseDelayMs * Math.pow(2, attempt);
+          await this.sleep(delayMs);
+          continue;
+        }
+
+        throw err;
+      } finally {
+        clearTimeout(timeout);
       }
-      throw err;
-    } finally {
-      clearTimeout(timeout);
     }
+
+    // Si llegamos aquí, agotamos los reintentos
+    throw lastError ?? new Error('Error desconocido tras reintentos');
+  }
+
+  private sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
   /**

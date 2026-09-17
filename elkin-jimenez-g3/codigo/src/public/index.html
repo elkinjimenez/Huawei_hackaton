@@ -130,10 +130,10 @@
       <div class="panel">
         <h2>📋 Asientos del Evento</h2>
         <div class="legend">
-          <span><span class="dot green"></span> AVAILABLE</span>
-          <span><span class="dot yellow"></span> HELD</span>
-          <span><span class="dot red"></span> SOLD</span>
-          <span style="margin-left:auto">Circuit Breaker: <span class="breaker-badge CLOSED" id="breakerBadge">CLOSED</span></span>
+          <span><span class="dot green"></span> DISPONIBLE</span>
+          <span><span class="dot yellow"></span> RESERVADO</span>
+          <span><span class="dot red"></span> VENDIDO</span>
+          <span style="margin-left:auto">Interruptor: <span class="breaker-badge CLOSED" id="breakerBadge">CERRADO</span></span>
         </div>
         <div class="stats" id="stats"></div>
         <div class="seats-grid" id="seatsGrid"></div>
@@ -154,40 +154,40 @@
     <div>
       <div class="panel">
         <h2>🎯 Crear Reserva (HOLD)</h2>
-        <label>Usuario ID</label>
+        <label>ID de Usuario</label>
         <input type="text" id="userId" value="usr_juez" placeholder="usr_12345">
         <label>Asientos seleccionados</label>
-        <input type="text" id="selectedSeats" readonly placeholder="Click en asientos disponibles">
-        <button class="btn success" id="btnHold" onclick="createHold()">🟡 CREAR HOLD</button>
+        <input type="text" id="selectedSeats" readonly placeholder="Haga clic en asientos disponibles">
+        <button class="btn success" id="btnHold" onclick="createHold()">🟡 CREAR RESERVA</button>
         <div id="holdInfo"></div>
       </div>
 
       <div class="panel" style="margin-top:16px">
         <h2>💳 Confirmar Compra</h2>
-        <label>Hold ID</label>
+        <label>ID de Reserva (Hold)</label>
         <input type="text" id="confirmHoldId" placeholder="hold_XXXX">
-        <label>Payment Token</label>
+        <label>Token de Pago</label>
         <input type="text" id="paymentToken" value="tok_test_91827" placeholder="tok_test_...">
         <button class="btn success" onclick="confirmHold()">✅ CONFIRMAR</button>
-        <button class="btn danger" onclick="releaseHold()">🔓 LIBERAR HOLD</button>
+        <button class="btn danger" onclick="releaseHold()">🔓 LIBERAR RESERVA</button>
         <div id="confirmResult"></div>
       </div>
 
       <div class="panel" style="margin-top:16px">
         <h2>⚙️ Configuración</h2>
-        <label>TTL del HOLD (segundos)</label>
+        <label>Tiempo de expiración (segundos)</label>
         <input type="number" id="ttlSec" value="120">
         <label>Máx asientos por usuario</label>
         <input type="number" id="maxSeats" value="6">
-        <button class="btn" onclick="updateConfig()">Guardar Config</button>
+        <button class="btn" onclick="updateConfig()">Guardar Configuración</button>
         <div class="section-divider">
-          <label>Forzar estado Circuit Breaker</label>
+          <label>Forzar estado del Interruptor</label>
           <select id="breakerForce">
-            <option value="CLOSED">CLOSED</option>
-            <option value="OPEN">OPEN</option>
-            <option value="HALF_OPEN">HALF_OPEN</option>
+            <option value="CLOSED">CERRADO</option>
+            <option value="OPEN">ABIERTO</option>
+            <option value="HALF_OPEN">SEMI-ABIERTO</option>
           </select>
-          <button class="btn" onclick="forceBreaker()">Forzar Breaker</button>
+          <button class="btn" onclick="forceBreaker()">Forzar Interruptor</button>
         </div>
       </div>
 
@@ -266,14 +266,15 @@
       const { data } = await api('/stats');
       const el = document.getElementById('stats');
       el.innerHTML = `
-        <div class="stat available"><div class="num">${data.available}</div><div class="lbl">AVAILABLE</div></div>
-        <div class="stat held"><div class="num">${data.held}</div><div class="lbl">HELD</div></div>
-        <div class="stat sold"><div class="num">${data.sold}</div><div class="lbl">SOLD</div></div>
-        <div class="stat"><div class="num">${data.active_holds}</div><div class="lbl">HOLDS</div></div>
+        <div class="stat available"><div class="num">${data.available}</div><div class="lbl">DISPONIBLES</div></div>
+        <div class="stat held"><div class="num">${data.held}</div><div class="lbl">RESERVADOS</div></div>
+        <div class="stat sold"><div class="num">${data.sold}</div><div class="lbl">VENDIDOS</div></div>
+        <div class="stat"><div class="num">${data.active_holds}</div><div class="lbl">RESERVAS</div></div>
       `;
       const badge = document.getElementById('breakerBadge');
       const state = data.breaker.state;
-      badge.textContent = state;
+      const stateLabels = { CLOSED: 'CERRADO', OPEN: 'ABIERTO', HALF_OPEN: 'SEMI-ABIERTO' };
+      badge.textContent = stateLabels[state] || state;
       badge.className = `breaker-badge ${state}`;
     }
 
@@ -292,13 +293,13 @@
         body: { user_id: userId, event_id: 'aurora-bogota-2026', seat_ids: seats },
       });
       if (!ok) {
-        log(`HOLD rechazado: ${data.reason} (${data.error})`, 'error');
+        log(`Reserva rechazada: ${data.reason} (${data.error})`, 'error');
         document.getElementById('holdInfo').innerHTML = '';
         return;
       }
       currentHoldId = data.hold_id;
       document.getElementById('confirmHoldId').value = data.hold_id;
-      log(`HOLD creado: ${data.hold_id} - ${data.seat_ids.join(', ')} - ${fmtCOP(data.total)}`, 'success');
+      log(`Reserva creada: ${data.hold_id} - ${data.seat_ids.join(', ')} - ${fmtCOP(data.total)}`, 'success');
       showHoldInfo(data);
       selectedSeats.clear();
       document.getElementById('selectedSeats').value = '';
@@ -309,7 +310,7 @@
       const secs = Math.ceil(hold.remaining_ms / 1000);
       document.getElementById('holdInfo').innerHTML = `
         <div class="hold-info">
-          <div class="field"><span class="key">Hold ID:</span><span class="val">${hold.hold_id}</span></div>
+          <div class="field"><span class="key">ID Reserva:</span><span class="val">${hold.hold_id}</span></div>
           <div class="field"><span class="key">Usuario:</span><span class="val">${hold.user_id}</span></div>
           <div class="field"><span class="key">Asientos:</span><span class="val">${hold.seat_ids.join(', ')}</span></div>
           <div class="field"><span class="key">Total:</span><span class="val">${fmtCOP(hold.total)} ${hold.currency}</span></div>
@@ -341,7 +342,7 @@
     async function confirmHold() {
       const holdId = document.getElementById('confirmHoldId').value;
       const token = document.getElementById('paymentToken').value;
-      if (!holdId || !token) { log('Falta hold_id o payment_token', 'error'); return; }
+      if (!holdId || !token) { log('Falta ID de reserva o token de pago', 'error'); return; }
       const idempotencyKey = `confirm-${holdId}-${Date.now()}`;
       const { ok, data } = await api(`/holds/${holdId}/confirm`, {
         method: 'POST',
@@ -353,7 +354,7 @@
         document.getElementById('confirmResult').innerHTML = `
           <div class="hold-info">
             <div class="field"><span class="key">Confirmación:</span><span class="val">${data.confirmation_id}</span></div>
-            <div class="field"><span class="key">Pago:</span><span class="val">${data.payment_result}</span></div>
+            <div class="field"><span class="key">Resultado pago:</span><span class="val">${data.payment_result}</span></div>
             <div class="field"><span class="key">Total:</span><span class="val">${fmtCOP(data.total)} ${data.currency}</span></div>
           </div>`;
       } else {
@@ -371,7 +372,7 @@
       const holdId = document.getElementById('confirmHoldId').value;
       if (!holdId) return;
       const { data } = await api(`/holds/${holdId}/release`, { method: 'POST' });
-      log(`HOLD ${holdId} liberado: ${data.released}`, data.released ? 'success' : 'warn');
+      log(`Reserva ${holdId} liberada: ${data.released}`, data.released ? 'success' : 'warn');
       loadSeats();
     }
 
@@ -379,12 +380,12 @@
     async function simulateRace() {
       const seatId = document.getElementById('raceSeat').value;
       const users = parseInt(document.getElementById('raceUsers').value);
-      log(`Iniciando carrera: ${users} usuarios por ${seatId}...`, 'info');
+      log(`Iniciando carrera: ${users} usuarios por el asiento ${seatId}...`, 'info');
       const { ok, data } = await api('/simulate/race', {
         method: 'POST',
         body: { seat_id: seatId, users },
       });
-      if (!ok) { log('Error en simulación', 'error'); return; }
+      if (!ok) { log('Error en la simulación', 'error'); return; }
       const html = `
         <div class="race-result">
           <div class="big">🏁 Resultado de la carrera</div>
@@ -392,11 +393,11 @@
           <div class="field"><span>Solicitudes totales:</span><b>${data.total_requests}</b></div>
           <div class="big winners">🏆 Ganadores: ${data.winners}</div>
           <div class="big rejected">❌ Rechazadas: ${data.rejected}</div>
-          <div class="field"><span>Overselling:</span><b style="color:${data.winners > 1 ? '#f87171' : '#4ade80'}">${data.winners > 1 ? '⚠️ DETECTADO' : '✅ 0'}</b></div>
+          <div class="field"><span>Sobreventa:</span><b style="color:${data.winners > 1 ? '#f87171' : '#4ade80'}">${data.winners > 1 ? '⚠️ DETECTADA' : '✅ 0'}</b></div>
           ${data.winner ? `<div class="field"><span>Ganador:</span><b>${data.winner.user} (${data.winner.hold_id})</b></div>` : ''}
         </div>`;
       document.getElementById('raceResult').innerHTML = html;
-      log(`Carrera finalizada: ${data.winners} ganador(es), ${data.rejected} rechazadas`, data.winners === 1 ? 'success' : 'error');
+      log(`Carrera finalizada: ${data.winners} ganador(es), ${data.rejected} rechazada(s)`, data.winners === 1 ? 'success' : 'error');
       loadSeats();
     }
 
@@ -405,13 +406,13 @@
       const ttlMs = parseInt(document.getElementById('ttlSec').value) * 1000;
       const maxSeats = parseInt(document.getElementById('maxSeats').value);
       await api('/config', { method: 'PUT', body: { ttlMs, maxSeatsPerUser: maxSeats } });
-      log(`Config actualizada: TTL=${ttlMs/1000}s, maxSeats=${maxSeats}`, 'success');
+      log(`Configuración actualizada: TTL=${ttlMs/1000}s, máx asientos=${maxSeats}`, 'success');
     }
 
     async function forceBreaker() {
       const state = document.getElementById('breakerForce').value;
       await api('/breaker/force', { method: 'POST', body: { state } });
-      log(`Circuit breaker forzado a ${state}`, 'warn');
+      log(`Interruptor forzado a ${state}`, 'warn');
       updateStats();
     }
 
@@ -421,7 +422,7 @@
       const { data: cfg } = await api('/config');
       document.getElementById('ttlSec').value = cfg.ttlMs / 1000;
       document.getElementById('maxSeats').value = cfg.maxSeatsPerUser;
-      log('NEXUS LIVE Control Room iniciado', 'success');
+      log('Sala de Control NEXUS LIVE iniciada', 'success');
       setInterval(loadSeats, 2000);
     }
     init();

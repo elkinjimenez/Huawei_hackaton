@@ -1,0 +1,79 @@
+# Bitácora de uso de GLM 5.2 (MaaS) — Reto 3 NEXUS LIVE
+
+## Prompt 1 — Arquitectura inicial
+
+> "Tengo el reto NEXUS LIVE: construir un motor de reservas de entradas con concurrencia segura, idempotencia, circuit breaker e interfaz, en 80 minutos. Stack: Node.js + TypeScript. ¿Qué arquitectura propones?"
+
+**Decisión de GLM 5.2:** Propuso una arquitectura en capas: Engine (dominio) → Checkout (servicios) → API (Express) → UI. Trazabilidad en SQLite, estado en memoria. Aceptamos la propuesta.
+
+---
+
+## Prompt 2 — Concurrencia segura
+
+> "¿Cómo garantizo que 100 usuarios concurrentes no reserven el mismo asiento en Node.js?"
+
+**Propuesta de GLM 5.2:** Usar un mutex basado en cola de promesas para serializar operaciones críticas. En Node.js (single-threaded event loop), esto previene que operaciones async se entrelacen.
+
+**Corrección del equipo:** La propuesta era correcta. Implementamos `acquireLock()` con una cola de promesas en `engine.ts`.
+
+---
+
+## Prompt 3 — Idempotencia
+
+> "¿Cómo implemento Idempotency-Key con replay y conflicto?"
+
+**GLM 5.2 propuso:** Caché en memoria: key → { payloadHash, result }. Si misma key + mismo hash → replay. Si misma key + hash distinto → IDEMPOTENCY_CONFLICT.
+
+**Decisión del equipo:** Aceptamos. Implementado en `engine.ts` (`idempotencyCache`).
+
+---
+
+## Prompt 4 — Estrategia ante timeout de pagos
+
+> "Si el proveedor de pagos hace timeout, ¿libero el HOLD o lo mantengo?"
+
+**Propuesta de GLM 5.2:** Liberar el HOLD inmediatamente.
+
+**Corrección del equipo (NO seguimos la primera recomendación):** Decidimos NO liberar el HOLD en caso de TIMEOUT o ERROR. Un timeout es ambiguo: el pago podría haberse procesado. Liberar el asiento permitiría que otro usuario lo compre, generando doble venta. Mantenemos el HOLD activo y el cliente puede reintentar. Solo liberamos en DECLINED (rechazo explícito).
+
+---
+
+## Prompt 5 — Circuit Breaker
+
+> "Implementa un circuit breaker con CLOSED, OPEN, HALF_OPEN"
+
+**GLM 5.2 generó:** La clase `CircuitBreaker` en `payment.ts` con los 3 estados, failureThreshold=3, resetTimeout=15s, halfOpenMaxCalls=1. Implementación correcta sin correcciones.
+
+---
+
+## Prompt 6 — Prueba de concurrencia (Bono B)
+
+> "Escribe una prueba con 100 usuarios concurrentes por 1 asiento que verifique exactamente 1 ganador"
+
+**GLM 5.2 generó:** `concurrency.test.ts` con `Promise.all()` lanzando 100 `createHold` simultáneos. Verifica `winners.length === 1`. Pasó al primer intento.
+
+---
+
+## Prompt 7 — Bug encontrado con ayuda del agente
+
+**Problema:** Al ejecutar los tests, el test de "Confirmar HOLD ya confirmado" fallaba porque el mock de pagos no era determinista.
+
+**Solución con GLM 5.2:** Reescribimos los tests para forzar el resultado del mock sobrescribiendo `payment.authorize`, en lugar de depender del PRNG. Tests pasaron.
+
+---
+
+## Prompt 8 — Interfaz web
+
+> "Crea una interfaz web simple para que los jueces prueben el sistema sin curl ni Postman"
+
+**GLM 5.2 generó:** `index.html` con grid de asientos, panel de reserva, panel de confirmación, simulador de carrera, configuración y bitácora. Todo en un solo archivo HTML+CSS+JS. Aceptado con ajustes menores de estilo.
+
+---
+
+## Resumen
+
+- **Prompts enviados:** ~8 principales
+- **Propuestas corregidas:** 1 (estrategia de timeout — no liberar HOLD)
+- **Bugs resueltos con ayuda del agente:** 1 (mock no determinista en tests)
+- **Código generado por GLM 5.2:** ~90% del código base
+- **Tests:** 30 tests, todos pasan

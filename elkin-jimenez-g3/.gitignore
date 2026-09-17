@@ -1,0 +1,22 @@
+# Variables de entorno
+.env
+*.env
+
+# Dependencias
+node_modules/
+
+# Build
+dist/
+
+# SQLite
+*.db
+*.sqlite
+*.sqlite3
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/

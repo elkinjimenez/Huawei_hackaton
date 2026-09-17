@@ -1,0 +1,430 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NEXUS LIVE // Control Room</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      background: #0a0e1a;
+      color: #e0e6ed;
+      min-height: 100vh;
+    }
+    .header {
+      background: linear-gradient(135deg, #1a1f35, #2d1b4e);
+      padding: 20px 30px;
+      border-bottom: 2px solid #4a5fff;
+      display: flex; justify-content: space-between; align-items: center;
+    }
+    .header h1 { font-size: 24px; color: #7b8cff; }
+    .header .clock { font-size: 20px; color: #ff6b6b; font-weight: bold; }
+    .container { display: grid; grid-template-columns: 1fr 380px; gap: 20px; padding: 20px; }
+    .panel {
+      background: #131829;
+      border: 1px solid #2a3050;
+      border-radius: 8px;
+      padding: 16px;
+    }
+    .panel h2 {
+      font-size: 16px; color: #7b8cff; margin-bottom: 12px;
+      border-bottom: 1px solid #2a3050; padding-bottom: 8px;
+    }
+    .seats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(90px, 1fr));
+      gap: 8px;
+    }
+    .seat {
+      padding: 8px 4px;
+      border-radius: 6px;
+      text-align: center;
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: bold;
+      transition: all 0.2s;
+      user-select: none;
+      position: relative;
+    }
+    .seat .price { font-size: 10px; opacity: 0.8; font-weight: normal; }
+    .seat.AVAILABLE { background: #1a3a2a; border: 1px solid #2a6a4a; color: #4ade80; }
+    .seat.HELD { background: #3a3a1a; border: 1px solid #6a6a2a; color: #fbbf24; }
+    .seat.SOLD { background: #3a1a1a; border: 1px solid #6a2a2a; color: #f87171; cursor: not-allowed; }
+    .seat.selected { outline: 2px solid #7b8cff; outline-offset: 2px; }
+    .seat.AVAILABLE:hover { background: #2a5a3a; }
+    .legend { display: flex; gap: 15px; margin-bottom: 12px; font-size: 13px; }
+    .legend span { display: flex; align-items: center; gap: 5px; }
+    .dot { width: 12px; height: 12px; border-radius: 50%; display: inline-block; }
+    .dot.green { background: #4ade80; }
+    .dot.yellow { background: #fbbf24; }
+    .dot.red { background: #f87171; }
+    .btn {
+      background: #4a5fff; color: white; border: none;
+      padding: 10px 16px; border-radius: 6px; cursor: pointer;
+      font-size: 14px; font-weight: bold; width: 100%; margin-bottom: 8px;
+      transition: background 0.2s;
+    }
+    .btn:hover { background: #5a6fff; }
+    .btn.danger { background: #c0392b; }
+    .btn.danger:hover { background: #e74c3c; }
+    .btn.success { background: #27ae60; }
+    .btn.success:hover { background: #2ecc71; }
+    .btn:disabled { background: #555; cursor: not-allowed; }
+    input, select {
+      width: 100%; padding: 8px; margin-bottom: 8px;
+      background: #1a1f35; border: 1px solid #2a3050; color: #e0e6ed;
+      border-radius: 4px; font-size: 13px;
+    }
+    label { font-size: 12px; color: #8892b0; display: block; margin-bottom: 4px; }
+    .hold-info {
+      background: #1a1f35; padding: 10px; border-radius: 6px;
+      margin-bottom: 8px; font-size: 13px;
+    }
+    .hold-info .field { display: flex; justify-content: space-between; margin-bottom: 4px; }
+    .hold-info .field .key { color: #8892b0; }
+    .hold-info .field .val { color: #e0e6ed; font-weight: bold; }
+    .log {
+      background: #0d1117; padding: 10px; border-radius: 6px;
+      font-family: 'Consolas', monospace; font-size: 12px;
+      max-height: 300px; overflow-y: auto;
+      border: 1px solid #2a3050;
+    }
+    .log .entry { margin-bottom: 4px; padding: 2px 0; }
+    .log .entry.success { color: #4ade80; }
+    .log .entry.error { color: #f87171; }
+    .log .entry.info { color: #7b8cff; }
+    .log .entry.warn { color: #fbbf24; }
+    .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 12px; }
+    .stat { background: #1a1f35; padding: 8px; border-radius: 4px; text-align: center; }
+    .stat .num { font-size: 20px; font-weight: bold; }
+    .stat .lbl { font-size: 11px; color: #8892b0; }
+    .stat.available .num { color: #4ade80; }
+    .stat.held .num { color: #fbbf24; }
+    .stat.sold .num { color: #f87171; }
+    .breaker-badge {
+      display: inline-block; padding: 4px 10px; border-radius: 12px;
+      font-size: 12px; font-weight: bold; margin-left: 8px;
+    }
+    .breaker-badge.CLOSED { background: #1a3a2a; color: #4ade80; }
+    .breaker-badge.OPEN { background: #3a1a1a; color: #f87171; }
+    .breaker-badge.HALF_OPEN { background: #3a3a1a; color: #fbbf24; }
+    .race-result {
+      background: #1a1f35; padding: 12px; border-radius: 6px; margin-top: 8px;
+    }
+    .race-result .big { font-size: 18px; font-weight: bold; text-align: center; margin: 8px 0; }
+    .race-result .winners { color: #4ade80; }
+    .race-result .rejected { color: #f87171; }
+    .section-divider { margin: 16px 0 8px; border-top: 1px solid #2a3050; padding-top: 12px; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>🎟️ NEXUS LIVE // Control Room</h1>
+    <div class="clock" id="clock">--:--:--</div>
+  </div>
+
+  <div class="container">
+    <!-- Columna izquierda: asientos -->
+    <div>
+      <div class="panel">
+        <h2>📋 Asientos del Evento</h2>
+        <div class="legend">
+          <span><span class="dot green"></span> AVAILABLE</span>
+          <span><span class="dot yellow"></span> HELD</span>
+          <span><span class="dot red"></span> SOLD</span>
+          <span style="margin-left:auto">Circuit Breaker: <span class="breaker-badge CLOSED" id="breakerBadge">CLOSED</span></span>
+        </div>
+        <div class="stats" id="stats"></div>
+        <div class="seats-grid" id="seatsGrid"></div>
+      </div>
+
+      <div class="panel" style="margin-top:16px">
+        <h2>🧪 Simular Carrera de Concurrencia</h2>
+        <label>Asiento objetivo</label>
+        <input type="text" id="raceSeat" value="VIP-A-001" placeholder="ej: VIP-A-001">
+        <label>Número de usuarios concurrentes</label>
+        <input type="number" id="raceUsers" value="20" min="2" max="500">
+        <button class="btn" onclick="simulateRace()">⚡ SIMULAR CARRERA</button>
+        <div id="raceResult"></div>
+      </div>
+    </div>
+
+    <!-- Columna derecha: controles -->
+    <div>
+      <div class="panel">
+        <h2>🎯 Crear Reserva (HOLD)</h2>
+        <label>Usuario ID</label>
+        <input type="text" id="userId" value="usr_juez" placeholder="usr_12345">
+        <label>Asientos seleccionados</label>
+        <input type="text" id="selectedSeats" readonly placeholder="Click en asientos disponibles">
+        <button class="btn success" id="btnHold" onclick="createHold()">🟡 CREAR HOLD</button>
+        <div id="holdInfo"></div>
+      </div>
+
+      <div class="panel" style="margin-top:16px">
+        <h2>💳 Confirmar Compra</h2>
+        <label>Hold ID</label>
+        <input type="text" id="confirmHoldId" placeholder="hold_XXXX">
+        <label>Payment Token</label>
+        <input type="text" id="paymentToken" value="tok_test_91827" placeholder="tok_test_...">
+        <button class="btn success" onclick="confirmHold()">✅ CONFIRMAR</button>
+        <button class="btn danger" onclick="releaseHold()">🔓 LIBERAR HOLD</button>
+        <div id="confirmResult"></div>
+      </div>
+
+      <div class="panel" style="margin-top:16px">
+        <h2>⚙️ Configuración</h2>
+        <label>TTL del HOLD (segundos)</label>
+        <input type="number" id="ttlSec" value="120">
+        <label>Máx asientos por usuario</label>
+        <input type="number" id="maxSeats" value="6">
+        <button class="btn" onclick="updateConfig()">Guardar Config</button>
+        <div class="section-divider">
+          <label>Forzar estado Circuit Breaker</label>
+          <select id="breakerForce">
+            <option value="CLOSED">CLOSED</option>
+            <option value="OPEN">OPEN</option>
+            <option value="HALF_OPEN">HALF_OPEN</option>
+          </select>
+          <button class="btn" onclick="forceBreaker()">Forzar Breaker</button>
+        </div>
+      </div>
+
+      <div class="panel" style="margin-top:16px">
+        <h2>📜 Bitácora de Eventos</h2>
+        <div class="log" id="log"></div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const API = '';
+    let selectedSeats = new Set();
+    let currentHoldId = null;
+
+    // ---------- Utilidades ----------
+    function log(msg, type = 'info') {
+      const el = document.getElementById('log');
+      const time = new Date().toLocaleTimeString();
+      const entry = document.createElement('div');
+      entry.className = `entry ${type}`;
+      entry.textContent = `[${time}] ${msg}`;
+      el.prepend(entry);
+    }
+
+    async function api(path, opts = {}) {
+      const res = await fetch(`${API}/api${path}`, {
+        headers: { 'Content-Type': 'application/json', ...opts.headers },
+        method: opts.method || 'GET',
+        body: opts.body ? JSON.stringify(opts.body) : undefined,
+      });
+      const data = await res.json();
+      return { ok: res.ok, status: res.status, data };
+    }
+
+    function fmtCOP(n) {
+      return '$' + n.toLocaleString('es-CO');
+    }
+
+    // ---------- Reloj ----------
+    function updateClock() {
+      document.getElementById('clock').textContent = new Date().toLocaleTimeString();
+    }
+    setInterval(updateClock, 1000);
+    updateClock();
+
+    // ---------- Asientos ----------
+    async function loadSeats() {
+      const { ok, data } = await api('/seats');
+      if (!ok) return;
+      const grid = document.getElementById('seatsGrid');
+      grid.innerHTML = '';
+      data.forEach(seat => {
+        const el = document.createElement('div');
+        el.className = `seat ${seat.status}`;
+        if (selectedSeats.has(seat.seat_id)) el.classList.add('selected');
+        el.innerHTML = `${seat.seat_id}<div class="price">${fmtCOP(seat.price)}</div>`;
+        el.onclick = () => toggleSeat(seat.seat_id, seat.status);
+        grid.appendChild(el);
+      });
+      updateStats();
+    }
+
+    function toggleSeat(id, status) {
+      if (status !== 'AVAILABLE') {
+        log(`Asiento ${id} no está disponible (${status})`, 'warn');
+        return;
+      }
+      if (selectedSeats.has(id)) selectedSeats.delete(id);
+      else selectedSeats.add(id);
+      document.getElementById('selectedSeats').value = Array.from(selectedSeats).join(', ');
+      loadSeats();
+    }
+
+    async function updateStats() {
+      const { data } = await api('/stats');
+      const el = document.getElementById('stats');
+      el.innerHTML = `
+        <div class="stat available"><div class="num">${data.available}</div><div class="lbl">AVAILABLE</div></div>
+        <div class="stat held"><div class="num">${data.held}</div><div class="lbl">HELD</div></div>
+        <div class="stat sold"><div class="num">${data.sold}</div><div class="lbl">SOLD</div></div>
+        <div class="stat"><div class="num">${data.active_holds}</div><div class="lbl">HOLDS</div></div>
+      `;
+      const badge = document.getElementById('breakerBadge');
+      const state = data.breaker.state;
+      badge.textContent = state;
+      badge.className = `breaker-badge ${state}`;
+    }
+
+    // ---------- HOLD ----------
+    async function createHold() {
+      const userId = document.getElementById('userId').value;
+      const seats = Array.from(selectedSeats);
+      if (!userId || seats.length === 0) {
+        log('Falta usuario o asientos', 'error');
+        return;
+      }
+      const idempotencyKey = `reserve-${userId}-${Date.now()}`;
+      const { ok, data } = await api('/holds', {
+        method: 'POST',
+        headers: { 'Idempotency-Key': idempotencyKey },
+        body: { user_id: userId, event_id: 'aurora-bogota-2026', seat_ids: seats },
+      });
+      if (!ok) {
+        log(`HOLD rechazado: ${data.reason} (${data.error})`, 'error');
+        document.getElementById('holdInfo').innerHTML = '';
+        return;
+      }
+      currentHoldId = data.hold_id;
+      document.getElementById('confirmHoldId').value = data.hold_id;
+      log(`HOLD creado: ${data.hold_id} - ${data.seat_ids.join(', ')} - ${fmtCOP(data.total)}`, 'success');
+      showHoldInfo(data);
+      selectedSeats.clear();
+      document.getElementById('selectedSeats').value = '';
+      loadSeats();
+    }
+
+    function showHoldInfo(hold) {
+      const secs = Math.ceil(hold.remaining_ms / 1000);
+      document.getElementById('holdInfo').innerHTML = `
+        <div class="hold-info">
+          <div class="field"><span class="key">Hold ID:</span><span class="val">${hold.hold_id}</span></div>
+          <div class="field"><span class="key">Usuario:</span><span class="val">${hold.user_id}</span></div>
+          <div class="field"><span class="key">Asientos:</span><span class="val">${hold.seat_ids.join(', ')}</span></div>
+          <div class="field"><span class="key">Total:</span><span class="val">${fmtCOP(hold.total)} ${hold.currency}</span></div>
+          <div class="field"><span class="key">Estado:</span><span class="val">${hold.status}</span></div>
+          <div class="field"><span class="key">Expira en:</span><span class="val" id="countdown">${secs}s</span></div>
+        </div>
+      `;
+      if (hold.status === 'ACTIVE') startCountdown(hold.expires_at);
+    }
+
+    let countdownInterval;
+    function startCountdown(expiresAt) {
+      clearInterval(countdownInterval);
+      countdownInterval = setInterval(() => {
+        const ms = expiresAt - Date.now();
+        const el = document.getElementById('countdown');
+        if (!el) { clearInterval(countdownInterval); return; }
+        if (ms <= 0) {
+          el.textContent = 'EXPIRADO';
+          clearInterval(countdownInterval);
+          loadSeats();
+        } else {
+          el.textContent = Math.ceil(ms / 1000) + 's';
+        }
+      }, 1000);
+    }
+
+    // ---------- Confirmar ----------
+    async function confirmHold() {
+      const holdId = document.getElementById('confirmHoldId').value;
+      const token = document.getElementById('paymentToken').value;
+      if (!holdId || !token) { log('Falta hold_id o payment_token', 'error'); return; }
+      const idempotencyKey = `confirm-${holdId}-${Date.now()}`;
+      const { ok, data } = await api(`/holds/${holdId}/confirm`, {
+        method: 'POST',
+        headers: { 'Idempotency-Key': idempotencyKey },
+        body: { payment_token: token },
+      });
+      if (ok) {
+        log(`✅ COMPRA CONFIRMADA: ${data.confirmation_id} - ${data.seats.map(s => s.seat_id).join(', ')}`, 'success');
+        document.getElementById('confirmResult').innerHTML = `
+          <div class="hold-info">
+            <div class="field"><span class="key">Confirmación:</span><span class="val">${data.confirmation_id}</span></div>
+            <div class="field"><span class="key">Pago:</span><span class="val">${data.payment_result}</span></div>
+            <div class="field"><span class="key">Total:</span><span class="val">${fmtCOP(data.total)} ${data.currency}</span></div>
+          </div>`;
+      } else {
+        log(`❌ Confirmación falló: ${data.reason} (${data.error})`, 'error');
+        document.getElementById('confirmResult').innerHTML = `
+          <div class="hold-info">
+            <div class="field"><span class="key">Error:</span><span class="val">${data.error}</span></div>
+            <div class="field"><span class="key">Razón:</span><span class="val">${data.reason}</span></div>
+          </div>`;
+      }
+      loadSeats();
+    }
+
+    async function releaseHold() {
+      const holdId = document.getElementById('confirmHoldId').value;
+      if (!holdId) return;
+      const { data } = await api(`/holds/${holdId}/release`, { method: 'POST' });
+      log(`HOLD ${holdId} liberado: ${data.released}`, data.released ? 'success' : 'warn');
+      loadSeats();
+    }
+
+    // ---------- Carrera ----------
+    async function simulateRace() {
+      const seatId = document.getElementById('raceSeat').value;
+      const users = parseInt(document.getElementById('raceUsers').value);
+      log(`Iniciando carrera: ${users} usuarios por ${seatId}...`, 'info');
+      const { ok, data } = await api('/simulate/race', {
+        method: 'POST',
+        body: { seat_id: seatId, users },
+      });
+      if (!ok) { log('Error en simulación', 'error'); return; }
+      const html = `
+        <div class="race-result">
+          <div class="big">🏁 Resultado de la carrera</div>
+          <div class="field"><span>Asiento:</span><b>${data.seat_id}</b></div>
+          <div class="field"><span>Solicitudes totales:</span><b>${data.total_requests}</b></div>
+          <div class="big winners">🏆 Ganadores: ${data.winners}</div>
+          <div class="big rejected">❌ Rechazadas: ${data.rejected}</div>
+          <div class="field"><span>Overselling:</span><b style="color:${data.winners > 1 ? '#f87171' : '#4ade80'}">${data.winners > 1 ? '⚠️ DETECTADO' : '✅ 0'}</b></div>
+          ${data.winner ? `<div class="field"><span>Ganador:</span><b>${data.winner.user} (${data.winner.hold_id})</b></div>` : ''}
+        </div>`;
+      document.getElementById('raceResult').innerHTML = html;
+      log(`Carrera finalizada: ${data.winners} ganador(es), ${data.rejected} rechazadas`, data.winners === 1 ? 'success' : 'error');
+      loadSeats();
+    }
+
+    // ---------- Config ----------
+    async function updateConfig() {
+      const ttlMs = parseInt(document.getElementById('ttlSec').value) * 1000;
+      const maxSeats = parseInt(document.getElementById('maxSeats').value);
+      await api('/config', { method: 'PUT', body: { ttlMs, maxSeatsPerUser: maxSeats } });
+      log(`Config actualizada: TTL=${ttlMs/1000}s, maxSeats=${maxSeats}`, 'success');
+    }
+
+    async function forceBreaker() {
+      const state = document.getElementById('breakerForce').value;
+      await api('/breaker/force', { method: 'POST', body: { state } });
+      log(`Circuit breaker forzado a ${state}`, 'warn');
+      updateStats();
+    }
+
+    // ---------- Init ----------
+    async function init() {
+      await loadSeats();
+      const { data: cfg } = await api('/config');
+      document.getElementById('ttlSec').value = cfg.ttlMs / 1000;
+      document.getElementById('maxSeats').value = cfg.maxSeatsPerUser;
+      log('NEXUS LIVE Control Room iniciado', 'success');
+      setInterval(loadSeats, 2000);
+    }
+    init();
+  </script>
+</body>
+</html>
